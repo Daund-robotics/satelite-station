@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAT-GCS | Mission Control & Ground Station Telemetry</title>
+    
+    <!-- Google Fonts: Orbitron, Rajdhani, Inter, Share Tech Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        space: {
+                            950: '#030611',
+                            900: '#050816',
+                            850: '#0B1120',
+                            800: '#11192C',
+                            700: '#1E293B',
+                        },
+                        neon: {
+                            cyan: '#00E5FF',
+                            green: '#00FF7F',
+                            orange: '#FFA500',
+                            red: '#FF4D4D',
+                            purple: '#9D4EDD',
+                            blue: '#1A8CFF'
+                        }
+                    },
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        rajdhani: ['Rajdhani', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'neon-cyan': '0 0 15px rgba(0, 229, 255, 0.4)',
+                        'neon-red': '0 0 15px rgba(255, 77, 77, 0.5)',
+                        'neon-green': '0 0 15px rgba(0, 255, 127, 0.4)',
+                        'glow-card': '0 8px 32px 0 rgba(0, 229, 255, 0.08)',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet JS & CSS for Live Satellite Map Tracking -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Three.js CDN for 3D Earth and Satellite Canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Custom Futuristic UI Styling -->
+    <style>
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050816;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00E5FF;
+        }
+
+        .glass-panel {
+            background: rgba(11, 17, 32, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 229, 255, 0.15);
+        }
+
+        .glass-panel-hover:hover {
+            border-color: rgba(0, 229, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.15);
+        }
+
+        .tech-border {
+            position: relative;
+        }
+        .tech-border::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 8px; height: 8px;
+            border-top: 2px solid #00E5FF;
+            border-left: 2px solid #00E5FF;
+        }
+        .tech-border::after {
+            content: '';
+            position: absolute;
+            bottom: 0; right: 0; width: 8px; height: 8px;
+            border-bottom: 2px solid #00E5FF;
+            border-right: 2px solid #00E5FF;
+        }
+
+        /* Radar sweep effect */
+        @keyframes sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .radar-sweeper {
+            animation: sweep 4s linear infinite;
+            transform-origin: center center;
+        }
+
+        /* Pulse glow animation */
+        @keyframes neonPulse {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(1.05); }
+        }
+        .animate-neon-pulse {
+            animation: neonPulse 2.5s infinite ease-in-out;
+        }
+
+        /* Scanline HUD effect */
+        .scanline {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0, 229, 255, 0.03) 50%,
+                rgba(0, 229, 255, 0.03)
+            );
+            background-size: 100% 4px;
+        }
+
+        .leaflet-container {
+            background: #050816 !important;
+            font-family: 'Share Tech Mono', monospace;
+        }
+    </style>
+</head>
+
+<body class="bg-space-950 text-slate-100 font-sans antialiased overflow-x-hidden scanline selection:bg-neon-cyan selection:text-space-950">
+
+    <canvas id="starfieldCanvas" class="fixed inset-0 pointer-events-none z-0 opacity-40"></canvas>
+
+    <!-- MAIN APP SHELL -->
+    <div id="appShell" class="relative z-10 flex flex-col min-h-screen">
+
+        <!-- TOP NAVIGATION HEADER -->
+        <header class="glass-panel sticky top-0 z-50 px-4 py-2 border-b border-neon-cyan/20 flex flex-wrap items-center justify-between gap-4">
+            
+            <!-- Left Branding & Mission Title -->
+            <div class="flex items-center space-x-3">
+                <div class="relative flex items-center justify-center w-10 h-10 rounded-lg bg-neon-cyan/10 border border-neon-cyan/40 text-neon-cyan text-xl font-orbitron font-bold">
+                    <i class="fa-solid fa-satellite animate-pulse"></i>
+                    <span class="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-green opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-neon-green"></span>
+                    </span>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="font-orbitron text-lg font-bold tracking-wider text-slate-100 uppercase">SAT-GCS <span class="text-neon-cyan text-xs px-2 py-0.5 rounded border border-neon-cyan/30 bg-neon-cyan/10 font-mono">v4.2-PRO</span></h1>
+                        <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-mono flex items-center gap-1">
+                            <i class="fa-solid fa-signal text-[10px]"></i> ISRO / NASA LINK ACTIVE
+                        </span>
+                    </div>
+                    <p class="font-mono text-xs text-slate-400">MISSION: <span class="text-neon-cyan">INSAT-4G3 (ORBITAL TESTBED)</span> | STATION: <span class="text-slate-200">SRIHARIKOTA GS-1</span></p>
+                </div>
+            </div>
+
+            <!-- Middle Clocks & MET Counter -->
+            <div class="hidden lg:flex items-center space-x-6 font-mono text-xs">
+                <div class="bg-space-900/80 px-3 py-1.5 rounded border border-slate-700/60 flex items-center space-x-2">
+                    <i class="fa-regular fa-clock text-neon-cyan"></i>
+                    <div>
+                        <span class="text-slate-400 block text-[10px]">UTC TIME</span>
+                        <span id="utcClock" class="font-bold text-slate-200">00:00:00 UTC</span>
+                    </div>
+                </div>
+                <div class="bg-space-900/80 px-3 py-1.5 rounded border border-slate-700/60 flex items-center space-x-2">
+                    <i class="fa-solid fa-location-dot text-neon-green"></i>
+                    <div>
+                        <span class="text-slate-400 block text-[10px]">IST (INDIA)</span>
+                        <span id="istClock" class="font-bold text-slate-200">00:00:00 IST</span>
+                    </div>
+                </div>
+                <div class="bg-neon-cyan/10 px-3 py-1.5 rounded border border-neon-cyan/40 text-neon-cyan flex items-center space-x-2">
+                    <i class="fa-solid fa-stopwatch text-neon-cyan animate-spin" style="animation-duration: 6s;"></i>
+                    <div>
+                        <span class="text-neon-cyan/70 block text-[10px] font-orbitron">MISSION ELAPSED TIME</span>
+                        <span id="metClock" class="font-bold font-orbitron text-sm">T+ 04:12:49</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right System Indicators & Profile Controls -->
+            <div class="flex items-center space-x-3">
+                <!-- Signal Strength -->
+                <div class="hidden sm:flex items-center space-x-2 bg-space-900/80 px-2.5 py-1 rounded border border-slate-700/60" title="Signal RSSI">
+                    <i class="fa-solid fa-tower-broadcast text-neon-cyan"></i>
+                    <div class="text-xs font-mono">
+                        <span class="text-slate-400 block text-[9px]">RSSI</span>
+                        <span id="headerRssi" class="text-neon-green font-bold">-68 dBm</span>
+                    </div>
+                </div>
+
+                <!-- Battery Status -->
+                <div class="hidden sm:flex items-center space-x-2 bg-space-900/80 px-2.5 py-1 rounded border border-slate-700/60" title="Satellite Battery">
+                    <i class="fa-solid fa-battery-three-quarters text-neon-green"></i>
+                    <div class="text-xs font-mono">
+                        <span class="text-slate-400 block text-[9px]">BATTERY</span>
+                        <span id="headerBattery" class="text-neon-green font-bold">94.2%</span>
+                    </div>
+                </div>
+
+                <!-- Quick Action Audio Mute & Fullscreen -->
+                <button id="muteAudioBtn" onclick="toggleAudioMute()" class="p-2 rounded bg-space-800 border border-slate-700 hover:border-neon-cyan text-slate-300 hover:text-neon-cyan transition-all" title="Toggle Beep Alerts">
+                    <i id="muteIcon" class="fa-solid fa-volume-high text-xs"></i>
+                </button>
+                <button onclick="toggleFullScreen()" class="p-2 rounded bg-space-800 border border-slate-700 hover:border-neon-cyan text-slate-300 hover:text-neon-cyan transition-all" title="Toggle Fullscreen Mode">
+                    <i class="fa-solid fa-expand text-xs"></i>
+                </button>
+                <button onclick="openAiModal()" class="px-3 py-1.5 rounded bg-gradient-to-r from-neon-cyan/20 to-neon-purple/20 border border-neon-cyan/40 text-neon-cyan text-xs font-orbitron font-semibold hover:shadow-neon-cyan transition-all flex items-center gap-1.5">
+                    <i class="fa-solid fa-microchip"></i>
+                    <span>AI ASSISTANT</span>
+                </button>
+
+                <!-- User Role Selector -->
+                <div class="relative">
+                    <select id="roleSelector" onchange="switchRole(this.value)" class="bg-space-900 border border-neon-cyan/30 text-neon-cyan text-xs font-mono rounded px-2.5 py-1.5 focus:outline-none focus:border-neon-cyan">
+                        <option value="Admin">ADMIN (FULL CONTROL)</option>
+                        <option value="Operator">OPERATOR (FLIGHT)</option>
+                        <option value="Viewer">VIEWER (READ-ONLY)</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN DASHBOARD CONTENT AREA -->
+        <div class="flex-1 flex overflow-hidden">
+            
+            <!-- LEFT NAVIGATION SIDEBAR -->
+            <aside id="sidebar" class="glass-panel w-64 border-r border-slate-800 flex flex-col justify-between hidden md:flex transition-all duration-300">
+                <div class="p-3 space-y-1 overflow-y-auto">
+                    <div class="px-3 py-2 text-[10px] font-orbitron font-bold text-slate-400 tracking-wider uppercase">NAVIGATION PANELS</div>
+                    
+                    <button onclick="switchTab('overview')" id="nav-overview" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-neon-cyan bg-neon-cyan/10 border border-neon-cyan/30 shadow-neon-cyan transition-all">
+                        <i class="fa-solid fa-gauge-high w-4 text-center"></i>
+                        <span>MISSION OVERVIEW</span>
+                    </button>
+
+                    <button onclick="switchTab('telemetry')" id="nav-telemetry" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-chart-line w-4 text-center"></i>
+                        <span>LIVE TELEMETRY</span>
+                    </button>
+
+                    <button onclick="switchTab('3dviewer')" id="nav-3dviewer" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-cube w-4 text-center"></i>
+                        <span>3D DIGITAL TWIN</span>
+                    </button>
+
+                    <button onclick="switchTab('maptracker')" id="nav-maptracker" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-earth-asia w-4 text-center"></i>
+                        <span>ORBIT TRACKER</span>
+                    </button>
+
+                    <button onclick="switchTab('controls')" id="nav-controls" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-gamepad w-4 text-center"></i>
+                        <span>FLIGHT COMMANDS</span>
+                    </button>
+
+                    <button onclick="switchTab('groundstation')" id="nav-groundstation" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-radar w-4 text-center"></i>
+                        <span>GROUND STATION</span>
+                    </button>
+
+                    <button onclick="switchTab('health')" id="nav-health" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-heart-pulse w-4 text-center"></i>
+                        <span>SYSTEM HEALTH</span>
+                    </button>
+
+                    <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-file-code w-4 text-center"></i>
+                        <span>MISSION LOGS</span>
+                    </button>
+
+                    <button onclick="switchTab('about')" id="nav-about" class="nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all">
+                        <i class="fa-solid fa-circle-info w-4 text-center"></i>
+                        <span>ABOUT MISSION</span>
+                    </button>
+                </div>
+
+                <!-- Simulation Engine Trigger Bar in Sidebar -->
+                <div class="p-3 border-t border-slate-800 space-y-2">
+                    <div class="px-2 py-1 bg-space-900 rounded border border-slate-700/60 text-[10px] font-mono flex items-center justify-between">
+                        <span class="text-slate-400">TELEMETRY STREAM:</span>
+                        <span id="streamStateTag" class="text-neon-green font-bold">1.0 Hz REAL-TIME</span>
+                    </div>
+                    <button onclick="triggerAnomalySim()" class="w-full py-1.5 px-2 bg-neon-red/10 border border-neon-red/40 hover:bg-neon-red/20 text-neon-red text-xs font-orbitron font-semibold rounded transition-all">
+                        <i class="fa-solid fa-triangle-exclamation mr-1"></i> TEST ANOMALY
+                    </button>
+                </div>
+            </aside>
+
+            <!-- CENTER MAIN WORKSPACE VIEW -->
+            <main class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                <!-- VIEW 1: MISSION OVERVIEW TAB -->
+                <div id="tab-overview" class="view-panel space-y-4">
+                    
+                    <!-- Top Telemetry Highlight Metric Cards -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        
+                        <!-- Card 1: Altitude -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>ALTITUDE</span>
+                                <i class="fa-solid fa-arrow-up-right-dots text-neon-cyan"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardAlt" class="text-xl font-orbitron font-bold text-slate-100">542.8</span>
+                                <span class="text-xs font-mono text-neon-cyan">km</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>LEO TARGET: 550.0 km</span>
+                                <span class="text-neon-green">NORMAL</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 2: Speed -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>VELOCITY</span>
+                                <i class="fa-solid fa-gauge text-neon-green"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardVelocity" class="text-xl font-orbitron font-bold text-slate-100">7.62</span>
+                                <span class="text-xs font-mono text-neon-green">km/s</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>ORBITAL SPEED</span>
+                                <span class="text-neon-green">STABLE</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 3: Battery & Solar -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>BATTERY</span>
+                                <i class="fa-solid fa-solar-panel text-amber-400"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardBattery" class="text-xl font-orbitron font-bold text-amber-300">94.2%</span>
+                                <span class="text-xs font-mono text-amber-400">28.4V</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>SOLAR: <span id="cardSolarWatts" class="text-neon-green">148 W</span></span>
+                                <span class="text-neon-green">CHARGING</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 4: Temperature -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>INT TEMP</span>
+                                <i class="fa-solid fa-temperature-half text-neon-orange"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardTemp" class="text-xl font-orbitron font-bold text-slate-100">24.5</span>
+                                <span class="text-xs font-mono text-neon-orange">°C</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>EXT: <span id="cardExtTemp" class="text-slate-300">-12.4°C</span></span>
+                                <span class="text-neon-green font-bold">NOMINAL</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 5: Orientation -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>ATTITUDE</span>
+                                <i class="fa-solid fa-compass text-neon-purple"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardHeading" class="text-xl font-orbitron font-bold text-slate-100">182.4°</span>
+                                <span class="text-xs font-mono text-neon-purple">YAW</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>P: <span id="cardPitch">1.2°</span> R: <span id="cardRoll">-0.4°</span></span>
+                                <span class="text-neon-cyan">NADIR</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 6: Orbit Counter & Mode -->
+                        <div class="glass-panel p-3 rounded-xl border border-neon-cyan/20 tech-border hover:shadow-neon-cyan transition-all">
+                            <div class="flex items-center justify-between text-xs text-slate-400 font-mono">
+                                <span>ORBIT #</span>
+                                <i class="fa-solid fa-rotate text-neon-blue"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between">
+                                <span id="cardOrbitNum" class="text-xl font-orbitron font-bold text-neon-cyan">1,248</span>
+                                <span class="text-xs font-mono text-emerald-400">NOMINAL</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-slate-400 font-mono flex justify-between">
+                                <span>MODE: <span id="cardMode" class="text-neon-cyan font-bold">ACTIVE SCAN</span></span>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Split Overview Row: 3D Miniature Earth View + Key Chart -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        
+                        <!-- 3D Mini Digital Twin Canvas Container -->
+                        <div class="lg:col-span-7 glass-panel p-4 rounded-xl relative flex flex-col justify-between h-[360px]">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fa-solid fa-globe text-neon-cyan"></i>
+                                    <span class="font-orbitron text-sm font-semibold text-slate-200">ORBITAL DIGITAL TWIN (REAL-TIME 3D)</span>
+                                </div>
+                                <span class="text-xs font-mono px-2 py-0.5 rounded bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan">INTERACTIVE CANVAS</span>
+                            </div>
+                            
+                            <!-- Three.js Canvas Container -->
+                            <div id="threeDOverviewContainer" class="w-full h-full rounded-lg overflow-hidden bg-space-950/80 border border-slate-800 relative">
+                                <div class="absolute top-2 left-2 z-10 pointer-events-none bg-space-900/80 px-3 py-1.5 rounded border border-slate-700/60 font-mono text-[11px] space-y-0.5">
+                                    <div class="text-neon-cyan">LAT: <span id="overviewLat">13.7199° N</span></div>
+                                    <div class="text-neon-cyan">LNG: <span id="overviewLng">80.2300° E</span></div>
+                                    <div class="text-slate-400">SUB-SATELLITE POINT</div>
+                                </div>
+                                <div class="absolute bottom-2 right-2 z-10 space-x-2">
+                                    <button onclick="resetCamera3D()" class="px-2.5 py-1 bg-space-800 border border-slate-700 hover:border-neon-cyan text-xs font-mono rounded text-slate-300">
+                                        <i class="fa-solid fa-arrows-to-eye"></i> RESET VIEW
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Overview Chart: Altitude & Speed Dual Axis -->
+                        <div class="lg:col-span-5 glass-panel p-4 rounded-xl flex flex-col justify-between h-[360px]">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fa-solid fa-chart-area text-neon-green"></i>
+                                    <span class="font-orbitron text-sm font-semibold text-slate-200">TELEMETRY GRAPH (ALTITUDE vs SPEED)</span>
+                                </div>
+                            </div>
+                            <div class="w-full flex-1 relative min-h-0">
+                                <canvas id="overviewChart"></canvas>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Bottom Overview Row: Mission Timeline Stepper & Sensors Quick Matrix -->
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        
+                        <!-- Mission Flight Phase Timeline Stepper -->
+                        <div class="lg:col-span-8 glass-panel p-4 rounded-xl">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fa-solid fa-timeline text-neon-orange"></i>
+                                    <span class="font-orbitron text-sm font-semibold text-slate-200">LAUNCH & FLIGHT PHASE TIMELINE</span>
+                                </div>
+                                <span class="text-xs font-mono text-neon-green">PHASE 6: DEPLOYED</span>
+                            </div>
+                            
+                            <!-- Stepper Cards -->
+                            <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 font-mono text-center">
+                                <div class="p-2 bg-emerald-950/40 border border-emerald-500/50 rounded-lg text-emerald-300">
+                                    <i class="fa-solid fa-check-double text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">1. PRE-LAUNCH</span>
+                                    <span class="text-[9px] text-emerald-400/80">T-00:15:00</span>
+                                </div>
+                                <div class="p-2 bg-emerald-950/40 border border-emerald-500/50 rounded-lg text-emerald-300">
+                                    <i class="fa-solid fa-check-double text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">2. LAUNCH</span>
+                                    <span class="text-[9px] text-emerald-400/80">T+00:00:00</span>
+                                </div>
+                                <div class="p-2 bg-emerald-950/40 border border-emerald-500/50 rounded-lg text-emerald-300">
+                                    <i class="fa-solid fa-check-double text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">3. BOOSTER SEP</span>
+                                    <span class="text-[9px] text-emerald-400/80">T+00:02:40</span>
+                                </div>
+                                <div class="p-2 bg-emerald-950/40 border border-emerald-500/50 rounded-lg text-emerald-300">
+                                    <i class="fa-solid fa-check-double text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">4. ORBIT INJ</span>
+                                    <span class="text-[9px] text-emerald-400/80">T+00:09:12</span>
+                                </div>
+                                <div class="p-2 bg-neon-cyan/20 border border-neon-cyan rounded-lg text-neon-cyan animate-pulse">
+                                    <i class="fa-solid fa-spinner animate-spin text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">5. SOLAR DEPLOY</span>
+                                    <span class="text-[9px]">ACTIVE</span>
+                                </div>
+                                <div class="p-2 bg-space-900 border border-slate-800 rounded-lg text-slate-500 opacity-60">
+                                    <i class="fa-solid fa-hourglass-start text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">6. PAYLOAD INIT</span>
+                                    <span class="text-[9px]">PENDING</span>
+                                </div>
+                                <div class="p-2 bg-space-900 border border-slate-800 rounded-lg text-slate-500 opacity-60">
+                                    <i class="fa-solid fa-flag-checkered text-xs block mb-1"></i>
+                                    <span class="text-[10px] font-bold block">7. NOMINAL OPS</span>
+                                    <span class="text-[9px]">STANDBY</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Health Summary Card -->
+                        <div class="lg:col-span-4 glass-panel p-4 rounded-xl flex flex-col justify-between">
+                            <div class="flex items-center justify-between">
+                                <span class="font-orbitron text-sm font-semibold text-slate-200">PRIMARY HEALTH SCORE</span>
+                                <span class="text-xs font-mono text-neon-green font-bold">98.4%</span>
+                            </div>
+                            <div class="flex items-center space-x-4 my-2">
+                                <div class="relative w-20 h-20 flex items-center justify-center">
+                                    <svg class="w-full h-full transform -rotate-90">
+                                        <circle cx="40" cy="40" r="32" stroke="#1e293b" stroke-width="6" fill="transparent"></circle>
+                                        <circle cx="40" cy="40" r="32" stroke="#00FF7F" stroke-width="6" stroke-dasharray="201" stroke-dashoffset="12" fill="transparent" stroke-linecap="round"></circle>
+                                    </svg>
+                                    <span class="absolute text-sm font-orbitron font-bold text-slate-100">98%</span>
+                                </div>
+                                <div class="flex-1 space-y-1 font-mono text-xs">
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-400">EPS (POWER):</span>
+                                        <span class="text-neon-green">100%</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-400">COMMS RF:</span>
+                                        <span class="text-neon-green">97.2%</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-slate-400">ADCS THERMAL:</span>
+                                        <span class="text-neon-green">98.0%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <!-- VIEW 2: LIVE TELEMETRY CHARTS TAB -->
+                <div id="tab-telemetry" class="view-panel hidden space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-orbitron text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-neon-cyan"></i> SATELLITE SENSOR TELEMETRY MATRICES
+                        </h2>
+                        <div class="flex space-x-2">
+                            <button onclick="exportTelemetryCSV()" class="px-3 py-1.5 bg-space-800 border border-slate-700 hover:border-neon-cyan text-neon-cyan text-xs font-mono rounded flex items-center gap-1.5">
+                                <i class="fa-solid fa-download"></i> EXPORT CSV LOGS
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 2x2 Sensor Graph Grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        
+                        <!-- Graph 1: Power & Battery -->
+                        <div class="glass-panel p-4 rounded-xl h-[300px] flex flex-col justify-between">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-orbitron text-xs font-semibold text-slate-200">POWER SYSTEM (VOLTAGE & SOLAR WATTS)</span>
+                                <span class="text-[10px] font-mono text-amber-400">BUS VOLTS: 28.4V</span>
+                            </div>
+                            <div class="w-full flex-1 relative min-h-0">
+                                <canvas id="chartPower"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Graph 2: Thermal Matrix -->
+                        <div class="glass-panel p-4 rounded-xl h-[300px] flex flex-col justify-between">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-orbitron text-xs font-semibold text-slate-200">THERMAL TELEMETRY (°C)</span>
+                                <span class="text-[10px] font-mono text-neon-cyan">CORE: 24.5°C</span>
+                            </div>
+                            <div class="w-full flex-1 relative min-h-0">
+                                <canvas id="chartThermal"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Graph 3: Orientation Gyro / Acceleration -->
+                        <div class="glass-panel p-4 rounded-xl h-[300px] flex flex-col justify-between">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-orbitron text-xs font-semibold text-slate-200">ADCS ATTITUDE (PITCH / ROLL / YAW)</span>
+                                <span class="text-[10px] font-mono text-neon-purple">GYRO ACTIVE</span>
+                            </div>
+                            <div class="w-full flex-1 relative min-h-0">
+                                <canvas id="chartGyro"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Graph 4: RF Link & Packet Delay -->
+                        <div class="glass-panel p-4 rounded-xl h-[300px] flex flex-col justify-between">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-orbitron text-xs font-semibold text-slate-200">COMMUNICATION LINK & LATENCY</span>
+                                <span class="text-[10px] font-mono text-neon-green">RSSI: -68 dBm</span>
+                            </div>
+                            <div class="w-full flex-1 relative min-h-0">
+                                <canvas id="chartComms"></canvas>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- VIEW 3: 3D DIGITAL TWIN TAB -->
+                <div id="tab-3dviewer" class="view-panel hidden space-y-4">
+                    <div class="glass-panel p-4 rounded-xl relative h-[650px] flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center space-x-2">
+                                <i class="fa-solid fa-cube text-neon-cyan"></i>
+                                <span class="font-orbitron text-sm font-semibold text-slate-200">3D DIGITAL TWIN & ORIENTATION VISUALIZER</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="toggleSolarPanels()" class="px-3 py-1 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan text-xs font-mono rounded hover:bg-neon-cyan/30">
+                                    <i class="fa-solid fa-solar-panel"></i> TOGGLE SOLAR DEPLOY
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Main Full View 3D Canvas -->
+                        <div id="threeDMainContainer" class="w-full flex-1 rounded-xl overflow-hidden bg-space-950/90 border border-slate-800 relative">
+                            <div class="absolute top-4 left-4 z-10 glass-panel p-3 rounded-lg font-mono text-xs space-y-1 border border-neon-cyan/30">
+                                <div class="text-slate-400 font-bold font-orbitron text-[11px] mb-1">ATTITUDE INDICATORS</div>
+                                <div class="text-neon-cyan">PITCH: <span id="twinPitch">1.20°</span></div>
+                                <div class="text-neon-green">ROLL: <span id="twinRoll">-0.45°</span></div>
+                                <div class="text-neon-purple">YAW: <span id="twinYaw">182.40°</span></div>
+                                <div class="text-amber-400">SUN VECTOR: <span id="twinSun">45.2°</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 4: ORBIT TRACKER MAP TAB -->
+                <div id="tab-maptracker" class="view-panel hidden space-y-4">
+                    <div class="glass-panel p-4 rounded-xl h-[650px] flex flex-col justify-between">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center space-x-2">
+                                <i class="fa-solid fa-earth-asia text-neon-cyan"></i>
+                                <span class="font-orbitron text-sm font-semibold text-slate-200">REAL-TIME ORBIT & GROUND STATION TRACKER (LEAFLET)</span>
+                            </div>
+                            <div class="font-mono text-xs text-slate-400">
+                                GROUND FOOTPRINT: <span class="text-neon-green">2,400 km DIA</span>
+                            </div>
+                        </div>
+                        <div id="leafletMap" class="w-full flex-1 rounded-xl overflow-hidden border border-slate-800"></div>
+                    </div>
+                </div>
+
+                <!-- VIEW 5: FLIGHT COMMAND DECK TAB -->
+                <div id="tab-controls" class="view-panel hidden space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="font-orbitron text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-gamepad text-neon-cyan"></i> FLIGHT COMMAND & CONTROL CONSOLE
+                        </h2>
+                        <span id="roleNotice" class="text-xs font-mono px-3 py-1 bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan rounded">
+                            ROLE: ADMIN (FULL AUTHORIZATION)
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        <!-- Primary Flight Action Buttons -->
+                        <div class="glass-panel p-4 rounded-xl space-y-3">
+                            <div class="font-orbitron text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">CRITICAL MISSION CONTROLS</div>
+                            <button onclick="sendFlightCommand('INITIALIZE')" class="w-full py-2.5 px-3 bg-neon-cyan/10 border border-neon-cyan/40 hover:bg-neon-cyan/20 text-neon-cyan font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>INITIALIZE SATELLITE BUS</span>
+                                <i class="fa-solid fa-power-off"></i>
+                            </button>
+                            <button onclick="sendFlightCommand('DEPLOY_SOLAR')" class="w-full py-2.5 px-3 bg-emerald-500/10 border border-emerald-500/40 hover:bg-emerald-500/20 text-emerald-400 font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>DEPLOY SOLAR ARRAY</span>
+                                <i class="fa-solid fa-solar-panel"></i>
+                            </button>
+                            <button onclick="sendFlightCommand('SAFE_MODE')" class="w-full py-2.5 px-3 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 text-amber-300 font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>ENTER SAFE MODE</span>
+                                <i class="fa-solid fa-shield-halved"></i>
+                            </button>
+                            <button onclick="sendFlightCommand('ABORT')" class="w-full py-2.5 px-3 bg-neon-red/20 border border-neon-red hover:bg-neon-red/30 text-neon-red font-orbitron text-xs font-bold rounded-lg transition-all flex items-center justify-between shadow-neon-red">
+                                <span>EMERGENCY MISSION ABORT</span>
+                                <i class="fa-solid fa-triangle-exclamation"></i>
+                            </button>
+                        </div>
+
+                        <!-- Hardware Diagnostics & Sensor Calibration -->
+                        <div class="glass-panel p-4 rounded-xl space-y-3">
+                            <div class="font-orbitron text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">SUBSYSTEM REBOOT & CALIBRATION</div>
+                            <button onclick="sendFlightCommand('RECAL_IMU')" class="w-full py-2.5 px-3 bg-space-800 border border-slate-700 hover:border-neon-cyan text-slate-200 font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>CALIBRATE GYRO & IMU</span>
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                            <button onclick="sendFlightCommand('RESTART_ESP32')" class="w-full py-2.5 px-3 bg-space-800 border border-slate-700 hover:border-neon-cyan text-slate-200 font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>REBOOT ESP32 MCU</span>
+                                <i class="fa-solid fa-microchip"></i>
+                            </button>
+                            <button onclick="sendFlightCommand('RESET_COMMS')" class="w-full py-2.5 px-3 bg-space-800 border border-slate-700 hover:border-neon-cyan text-slate-200 font-orbitron text-xs font-semibold rounded-lg transition-all flex items-center justify-between">
+                                <span>RESET MQTT / TRANSCEIVER</span>
+                                <i class="fa-solid fa-tower-broadcast"></i>
+                            </button>
+                        </div>
+
+                        <!-- Terminal Command Line Prompt -->
+                        <div class="glass-panel p-4 rounded-xl flex flex-col justify-between h-full font-mono text-xs">
+                            <div class="font-orbitron text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">DIRECT BUS COMMAND CONSOLE</div>
+                            <div id="consoleLogOutput" class="my-2 p-2 bg-space-950 rounded border border-slate-800 h-36 overflow-y-auto text-emerald-400 space-y-1">
+                                <div>[SYS] COMMS LOG READY... READY FOR COMMAND INPUT.</div>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-neon-cyan">&gt;</span>
+                                <input id="cmdInput" type="text" placeholder="TYPE CMD e.g. AT+PING" onkeydown="if(event.key==='Enter') executeTerminalCmd()" class="flex-1 bg-space-900 border border-slate-700 rounded px-2 py-1 text-slate-100 focus:outline-none focus:border-neon-cyan">
+                                <button onclick="executeTerminalCmd()" class="px-3 py-1 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan rounded">SEND</button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- VIEW 6: GROUND STATION RADAR TAB -->
+                <div id="tab-groundstation" class="view-panel hidden space-y-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                        
+                        <!-- Azimuth / Elevation Radar Scope -->
+                        <div class="lg:col-span-5 glass-panel p-4 rounded-xl flex flex-col items-center justify-between h-[450px]">
+                            <div class="w-full flex items-center justify-between mb-2">
+                                <span class="font-orbitron text-xs font-semibold text-slate-200">ANTENNA AZ/EL RADAR SCOPE</span>
+                                <span class="text-xs font-mono text-neon-green">LOCK ACTIVE</span>
+                            </div>
+                            
+                            <!-- Radar Animated Visualizer -->
+                            <div class="relative w-64 h-64 rounded-full border-2 border-neon-cyan/40 bg-space-950/80 flex items-center justify-center overflow-hidden">
+                                <div class="absolute inset-0 border border-neon-cyan/20 rounded-full scale-75"></div>
+                                <div class="absolute inset-0 border border-neon-cyan/20 rounded-full scale-50"></div>
+                                <div class="absolute inset-0 border border-neon-cyan/20 rounded-full scale-25"></div>
+                                <div class="absolute w-full h-[1px] bg-neon-cyan/30"></div>
+                                <div class="absolute h-full w-[1px] bg-neon-cyan/30"></div>
+                                <div class="absolute inset-0 radar-sweeper bg-gradient-to-tr from-neon-cyan/20 via-transparent to-transparent"></div>
+                                <!-- Target Blip -->
+                                <div class="absolute w-3 h-3 bg-neon-green rounded-full shadow-neon-green animate-ping" style="top: 35%; left: 62%;"></div>
+                                <div class="absolute w-3 h-3 bg-neon-green rounded-full" style="top: 35%; left: 62%;"></div>
+                            </div>
+
+                            <div class="w-full grid grid-cols-2 gap-2 text-center font-mono text-xs">
+                                <div class="p-2 bg-space-900 rounded border border-slate-800">
+                                    <span class="text-slate-400 block text-[10px]">AZIMUTH</span>
+                                    <span id="gsAzimuth" class="text-neon-cyan font-bold text-sm">142.8° SE</span>
+                                </div>
+                                <div class="p-2 bg-space-900 rounded border border-slate-800">
+                                    <span class="text-slate-400 block text-[10px]">ELEVATION</span>
+                                    <span id="gsElevation" class="text-neon-green font-bold text-sm">48.2°</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Comms Metrics & Station Info -->
+                        <div class="lg:col-span-7 glass-panel p-4 rounded-xl flex flex-col justify-between space-y-3">
+                            <div class="font-orbitron text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">GROUND TRANSCEIVER PARAMETERS</div>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono text-xs">
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">FREQUENCY</span>
+                                    <span class="text-neon-cyan font-bold">437.425 MHz</span>
+                                </div>
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">MODULATION</span>
+                                    <span class="text-neon-green font-bold">2-GFSK / LoRa</span>
+                                </div>
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">DOWNLINK RATE</span>
+                                    <span class="text-amber-300 font-bold">9600 bps</span>
+                                </div>
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">PACKET LOSS</span>
+                                    <span class="text-emerald-400 font-bold">0.02%</span>
+                                </div>
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">SNR RATIO</span>
+                                    <span class="text-neon-cyan font-bold">+14.2 dB</span>
+                                </div>
+                                <div class="p-3 bg-space-900 rounded-lg border border-slate-800">
+                                    <span class="text-slate-400 text-[10px] block">PASS TIME LEFT</span>
+                                    <span class="text-neon-orange font-bold">08m 42s</span>
+                                </div>
+                            </div>
+
+                            <div class="p-3 bg-space-950 rounded-lg border border-slate-800 font-mono text-xs space-y-1">
+                                <div class="text-slate-400 font-bold font-orbitron text-[11px] mb-1">STATION LOCATION DATA</div>
+                                <div>STATION NAME: <span class="text-slate-200">SHAR Ground Operations Center-1</span></div>
+                                <div>COORDINATES: <span class="text-slate-200">13.7199° N, 80.2300° E</span></div>
+                                <div>WEATHER AT STATION: <span class="text-neon-green">Clear Sky, 28°C, Wind 12 km/h ENE</span></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- VIEW 7: SYSTEM HEALTH TAB -->
+                <div id="tab-health" class="view-panel hidden space-y-4">
+                    <div class="font-orbitron text-base font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-heart-pulse text-neon-green"></i> SUBSYSTEM HEALTH & DIAGNOSTICS MATRIX
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs">
+                        <!-- Health Item 1 -->
+                        <div class="glass-panel p-4 rounded-xl text-center space-y-2">
+                            <span class="text-slate-400 text-[10px] block">CPU LOAD</span>
+                            <span class="text-2xl font-orbitron font-bold text-neon-cyan">18.4%</span>
+                            <div class="w-full bg-space-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                                <div class="bg-neon-cyan h-full w-[18%]"></div>
+                            </div>
+                        </div>
+                        <!-- Health Item 2 -->
+                        <div class="glass-panel p-4 rounded-xl text-center space-y-2">
+                            <span class="text-slate-400 text-[10px] block">RAM USAGE</span>
+                            <span class="text-2xl font-orbitron font-bold text-neon-green">42.1%</span>
+                            <div class="w-full bg-space-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                                <div class="bg-neon-green h-full w-[42%]"></div>
+                            </div>
+                        </div>
+                        <!-- Health Item 3 -->
+                        <div class="glass-panel p-4 rounded-xl text-center space-y-2">
+                            <span class="text-slate-400 text-[10px] block">FLASH MEMORY</span>
+                            <span class="text-2xl font-orbitron font-bold text-amber-300">68.9%</span>
+                            <div class="w-full bg-space-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                                <div class="bg-amber-300 h-full w-[68%]"></div>
+                            </div>
+                        </div>
+                        <!-- Health Item 4 -->
+                        <div class="glass-panel p-4 rounded-xl text-center space-y-2">
+                            <span class="text-slate-400 text-[10px] block">BUS TEMPERATURE</span>
+                            <span class="text-2xl font-orbitron font-bold text-emerald-400">24.5°C</span>
+                            <div class="w-full bg-space-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                                <div class="bg-emerald-400 h-full w-[30%]"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 8: MISSION LOGS TAB -->
+                <div id="tab-logs" class="view-panel hidden space-y-4">
+                    <div class="glass-panel p-4 rounded-xl space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <span class="font-orbitron text-xs font-bold text-slate-300">FULL TELEMETRY LOG RECORD</span>
+                            <button onclick="exportTelemetryCSV()" class="px-3 py-1 bg-neon-cyan/20 border border-neon-cyan text-neon-cyan text-xs font-mono rounded">EXPORT CSV</button>
+                        </div>
+                        <div id="tableLogContainer" class="overflow-x-auto max-h-[500px]">
+                            <table class="w-full text-left font-mono text-xs text-slate-300">
+                                <thead class="bg-space-900 text-neon-cyan uppercase sticky top-0">
+                                    <tr>
+                                        <th class="p-2 border-b border-slate-800">TIMESTAMP</th>
+                                        <th class="p-2 border-b border-slate-800">ALT (KM)</th>
+                                        <th class="p-2 border-b border-slate-800">VEL (KM/S)</th>
+                                        <th class="p-2 border-b border-slate-800">BAT (%)</th>
+                                        <th class="p-2 border-b border-slate-800">TEMP (°C)</th>
+                                        <th class="p-2 border-b border-slate-800">STATUS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="logTableBody" class="divide-y divide-slate-800/50">
+                                    <!-- Dynamic Log Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW 9: ABOUT MISSION TAB -->
+                <div id="tab-about" class="view-panel hidden space-y-4">
+                    <div class="glass-panel p-6 rounded-xl space-y-4 max-w-4xl mx-auto">
+                        <div class="border-b border-slate-800 pb-3 flex items-center justify-between">
+                            <div>
+                                <h2 class="font-orbitron text-lg font-bold text-neon-cyan">INSAT-4G3 ORBITAL TESTBED MISSION</h2>
+                                <p class="text-xs font-mono text-slate-400">STUDENT CUBESAT DEVELOPMENT & GROUND STATION ARCHITECTURE</p>
+                            </div>
+                            <i class="fa-solid fa-satellite text-3xl text-neon-cyan"></i>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
+                            <div class="space-y-2">
+                                <h3 class="font-orbitron text-xs text-slate-200 font-bold border-b border-slate-800 pb-1">SATELLITE SPECIFICATIONS</h3>
+                                <div>FORM FACTOR: <span class="text-slate-300">3U CubeSat (30cm x 10cm x 10cm)</span></div>
+                                <div>MASS: <span class="text-slate-300">4.12 kg</span></div>
+                                <div>PRIMARY PAYLOAD: <span class="text-neon-green">Multi-spectral Environmental Imager</span></div>
+                                <div>MICROCONTROLLER: <span class="text-amber-300">Dual ESP32 Transceiver Module</span></div>
+                            </div>
+                            <div class="space-y-2">
+                                <h3 class="font-orbitron text-xs text-slate-200 font-bold border-b border-slate-800 pb-1">DEVELOPMENT TEAM</h3>
+                                <div>COLLEGE / INSTITUTION: <span class="text-slate-300">Department of Aerospace & Robotics</span></div>
+                                <div>FACULTY GUIDE: <span class="text-slate-300">Dr. A. Sharma (Aerospace Engineering)</span></div>
+                                <div>STUDENT PROJECT LEAD: <span class="text-neon-cyan">Sat-GCS Project Team</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- AI MISSION ASSISTANT MODAL (GEMINI INTEGRATION READY) -->
+    <div id="aiAssistantModal" class="fixed inset-0 z-50 bg-space-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-2xl rounded-2xl border border-neon-cyan/40 shadow-neon-cyan flex flex-col h-[600px] overflow-hidden">
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-space-900/80">
+                <div class="flex items-center space-x-3">
+                    <i class="fa-solid fa-robot text-neon-cyan text-xl"></i>
+                    <div>
+                        <h3 class="font-orbitron text-sm font-bold text-slate-100">ASTRID AI | MISSION COPILOT</h3>
+                        <p class="text-[10px] font-mono text-slate-400">GEMINI 3 FLASH POWERED TELEMETRY DIAGNOSTICS</p>
+                    </div>
+                </div>
+                <button onclick="closeAiModal()" class="text-slate-400 hover:text-slate-100 p-2">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <!-- Chat Log Box -->
+            <div id="aiChatLog" class="flex-1 p-4 overflow-y-auto space-y-3 font-mono text-xs">
+                <div class="bg-neon-cyan/10 border border-neon-cyan/30 p-3 rounded-xl text-slate-200 max-w-[85%]">
+                    <span class="text-neon-cyan font-bold block mb-1">ASTRID AI:</span>
+                    Greetings Flight Director. All satellite telemetry feeds are currently nominal. How can I assist with telemetry analysis or mission operations?
+                </div>
+            </div>
+            <!-- Input Bar -->
+            <div class="p-3 border-t border-slate-800 bg-space-900/80 flex items-center space-x-2">
+                <input id="aiInputPrompt" type="text" placeholder="Ask ASTRID AI about telemetry or launch metrics..." onkeydown="if(event.key==='Enter') queryAstridAi()" class="flex-1 bg-space-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-100 focus:outline-none focus:border-neon-cyan">
+                <button onclick="queryAstridAi()" class="px-4 py-2 bg-gradient-to-r from-neon-cyan to-neon-blue text-space-950 font-orbitron font-bold text-xs rounded-lg hover:shadow-neon-cyan transition-all">
+                    SEND
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        
+        // --- GLOBAL TELEMETRY STATE ---
+        const telemetryState = {
+            altitude: 542.8,       // km
+            velocity: 7.62,        // km/s
+            batteryPct: 94.2,      // %
+            busVoltage: 28.4,      // V
+            solarWatts: 148,       // W
+            intTemp: 24.5,         // deg C
+            extTemp: -12.4,        // deg C
+            pitch: 1.2,            // deg
+            roll: -0.45,           // deg
+            yaw: 182.4,            // deg
+            rssi: -68,             // dBm
+            lat: 13.7199,          // deg N
+            lng: 80.2300,          // deg E
+            orbitNum: 1248,
+            mode: "ACTIVE SCAN",
+            userRole: "Admin",
+            audioMuted: false,
+            metSeconds: 15169       // Mission Elapsed Time in seconds
+        };
+
+        const logsArray = [];
+
+        // --- WEB AUDIO API SOUND SYNTHESIZER ---
+        let audioCtx = null;
+        function playBeep(freq = 880, duration = 0.08, type = 'sine') {
+            if (telemetryState.audioMuted) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) { console.debug(e); }
+        }
+
+        function toggleAudioMute() {
+            telemetryState.audioMuted = !telemetryState.audioMuted;
+            const icon = document.getElementById('muteIcon');
+            if (telemetryState.audioMuted) {
+                icon.className = 'fa-solid fa-volume-xmark text-xs text-neon-red';
+            } else {
+                icon.className = 'fa-solid fa-volume-high text-xs text-neon-cyan';
+                playBeep(1200, 0.1);
+            }
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => console.debug(err));
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+
+
+        // --- THREE.JS 3D SCENE SETUP ---
+        let sceneOverview, cameraOverview, rendererOverview, earthOverview, satOverview;
+        let sceneMain, cameraMain, rendererMain, satMainMesh, solarLeftMesh, solarRightMesh;
+
+        function initThreeJSOverview() {
+            const container = document.getElementById('threeDOverviewContainer');
+            if (!container) return;
+
+            sceneOverview = new THREE.Scene();
+            cameraOverview = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            cameraOverview.position.set(0, 0, 8);
+
+            rendererOverview = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            rendererOverview.setSize(container.clientWidth, container.clientHeight);
+            rendererOverview.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(rendererOverview.domElement);
+
+            // Create Earth Globe
+            const earthGeo = new THREE.SphereGeometry(2.5, 32, 32);
+            const earthMat = new THREE.MeshPhongMaterial({
+                color: 0x1A4B84,
+                emissive: 0x05152B,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.85
+            });
+            earthOverview = new THREE.Mesh(earthGeo, earthMat);
+            sceneOverview.add(earthOverview);
+
+            // Orbit Path Ring
+            const ringGeo = new THREE.RingGeometry(3.6, 3.63, 64);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x00E5FF, side: THREE.DoubleSide });
+            const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+            ringMesh.rotation.x = Math.PI / 2.5;
+            sceneOverview.add(ringMesh);
+
+            // Miniature Satellite Mesh
+            const satGeo = new THREE.BoxGeometry(0.3, 0.3, 0.5);
+            const satMat = new THREE.MeshStandardMaterial({ color: 0x00FF7F, emissive: 0x00FF7F, emissiveIntensity: 0.5 });
+            satOverview = new THREE.Mesh(satGeo, satMat);
+            satOverview.position.set(3.6, 0, 0);
+            sceneOverview.add(satOverview);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            sceneOverview.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0x00E5FF, 1.2);
+            dirLight.position.set(5, 3, 5);
+            sceneOverview.add(dirLight);
+
+            // Animation Loop
+            function animateOverview() {
+                requestAnimationFrame(animateOverview);
+                earthOverview.rotation.y += 0.002;
+                
+                // Orbit satellite around center
+                const time = Date.now() * 0.001;
+                satOverview.position.x = Math.cos(time * 0.5) * 3.6;
+                satOverview.position.z = Math.sin(time * 0.5) * 3.6;
+                satOverview.rotation.y += 0.02;
+
+                rendererOverview.render(sceneOverview, cameraOverview);
+            }
+            animateOverview();
+        }
+
+        function initThreeJSMainTwin() {
+            const container = document.getElementById('threeDMainContainer');
+            if (!container) return;
+
+            sceneMain = new THREE.Scene();
+            cameraMain = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            cameraMain.position.set(3, 2, 5);
+
+            rendererMain = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            rendererMain.setSize(container.clientWidth, container.clientHeight);
+            rendererMain.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(rendererMain.domElement);
+
+            // Satellite Chassis Body
+            const chassisGeo = new THREE.BoxGeometry(1.2, 1.2, 2.0);
+            const chassisMat = new THREE.MeshStandardMaterial({ color: 0x1E293B, metalness: 0.8, roughness: 0.2 });
+            satMainMesh = new THREE.Mesh(chassisGeo, chassisMat);
+
+            // Solar Panels
+            const panelGeo = new THREE.BoxGeometry(2.5, 0.05, 1.2);
+            const panelMat = new THREE.MeshStandardMaterial({ color: 0x00E5FF, metalness: 0.9, roughness: 0.1 });
+            
+            solarLeftMesh = new THREE.Mesh(panelGeo, panelMat);
+            solarLeftMesh.position.set(1.8, 0, 0);
+            satMainMesh.add(solarLeftMesh);
+
+            solarRightMesh = new THREE.Mesh(panelGeo, panelMat);
+            solarRightMesh.position.set(-1.8, 0, 0);
+            satMainMesh.add(solarRightMesh);
+
+            sceneMain.add(satMainMesh);
+
+            // Lighting
+            const ambLight = new THREE.AmbientLight(0xffffff, 0.7);
+            sceneMain.add(ambLight);
+            const light = new THREE.PointLight(0x00FF7F, 1.5);
+            light.position.set(10, 10, 10);
+            sceneMain.add(light);
+
+            function animateMainTwin() {
+                requestAnimationFrame(animateMainTwin);
+                if (satMainMesh) {
+                    satMainMesh.rotation.x = telemetryState.pitch * (Math.PI / 180);
+                    satMainMesh.rotation.z = telemetryState.roll * (Math.PI / 180);
+                    satMainMesh.rotation.y += 0.005;
+                }
+                rendererMain.render(sceneMain, cameraMain);
+            }
+            animateMainTwin();
+        }
+
+        function toggleSolarPanels() {
+            if (!solarLeftMesh || !solarRightMesh) return;
+            const currentScale = solarLeftMesh.scale.x;
+            if (currentScale > 0.5) {
+                solarLeftMesh.scale.set(0.1, 1, 1);
+                solarRightMesh.scale.set(0.1, 1, 1);
+                addConsoleLog("[BUS] SOLAR PANELS STOWED");
+            } else {
+                solarLeftMesh.scale.set(1, 1, 1);
+                solarRightMesh.scale.set(1, 1, 1);
+                addConsoleLog("[BUS] SOLAR PANELS FULLY DEPLOYED");
+            }
+            playBeep(1000, 0.1);
+        }
+
+        function resetCamera3D() {
+            if (cameraOverview) cameraOverview.position.set(0, 0, 8);
+        }
+
+
+        // --- LEAFLET SATELLITE MAP TRACKER ---
+        let leafletMapInstance, satMarker, satTrajectoryPolyline;
+        const orbitPathCoordinates = [];
+
+        function initLeafletMap() {
+            const mapContainer = document.getElementById('leafletMap');
+            if (!mapContainer || leafletMapInstance) return;
+
+            leafletMapInstance = L.map('leafletMap', {
+                zoomControl: true,
+                attributionControl: false
+            }).setView([13.7199, 80.2300], 4);
+
+            // Dark Map Tiles
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 18,
+                subdomains: 'abcd'
+            }).addTo(leafletMapInstance);
+
+            // Custom Glowing Satellite Icon
+            const satIcon = L.divIcon({
+                className: 'custom-sat-icon',
+                html: `<div class="relative flex items-center justify-center w-6 h-6 text-neon-cyan text-lg animate-pulse">
+                        <i class="fa-solid fa-satellite"></i>
+                       </div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+
+            // Satellite Marker
+            satMarker = L.marker([telemetryState.lat, telemetryState.lng], { icon: satIcon }).addTo(leafletMapInstance);
+            satMarker.bindPopup("<b>INSAT-4G3</b><br>Altitude: 542.8 km<br>Status: NOMINAL");
+
+            // Ground Station Pin (Sriharikota)
+            const gsMarker = L.circleMarker([13.7199, 80.2300], {
+                color: '#00FF7F',
+                fillColor: '#00FF7F',
+                fillOpacity: 0.8,
+                radius: 6
+            }).addTo(leafletMapInstance);
+            gsMarker.bindPopup("<b>SRIHARIKOTA GS-1</b><br>Primary Ground Station");
+
+            // Orbit Trajectory Line
+            satTrajectoryPolyline = L.polyline([], { color: '#00E5FF', weight: 2, dashArray: '4, 4' }).addTo(leafletMapInstance);
+        }
+
+
+        // --- CHART.JS INSTANCES ---
+        let overviewChart, chartPower, chartThermal, chartGyro, chartComms;
+
+        function initCharts() {
+            const chartFont = { family: 'Share Tech Mono', size: 10 };
+            const chartGridColor = 'rgba(255, 255, 255, 0.05)';
+
+            // Overview Chart
+            const ctxOverview = document.getElementById('overviewChart')?.getContext('2d');
+            if (ctxOverview) {
+                overviewChart = new Chart(ctxOverview, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            {
+                                label: 'Altitude (km)',
+                                data: [],
+                                borderColor: '#00E5FF',
+                                backgroundColor: 'rgba(0, 229, 255, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Velocity (km/s)',
+                                data: [],
+                                borderColor: '#00FF7F',
+                                tension: 0.3,
+                                yAxisID: 'y1'
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#94a3b8' } },
+                            y: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#00E5FF' } },
+                            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { font: chartFont, color: '#00FF7F' } }
+                        },
+                        plugins: { legend: { labels: { font: chartFont, color: '#cbd5e1' } } }
+                    }
+                });
+            }
+
+            // Power Chart
+            const ctxPower = document.getElementById('chartPower')?.getContext('2d');
+            if (ctxPower) {
+                chartPower = new Chart(ctxPower, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            { label: 'Battery %', data: [], borderColor: '#fbbf24', tension: 0.3 },
+                            { label: 'Solar Output (W)', data: [], borderColor: '#00FF7F', tension: 0.3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#94a3b8' } },
+                            y: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#cbd5e1' } }
+                        },
+                        plugins: { legend: { labels: { font: chartFont, color: '#cbd5e1' } } }
+                    }
+                });
+            }
+
+            // Thermal Chart
+            const ctxThermal = document.getElementById('chartThermal')?.getContext('2d');
+            if (ctxThermal) {
+                chartThermal = new Chart(ctxThermal, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            { label: 'Internal Temp (°C)', data: [], borderColor: '#00E5FF', tension: 0.3 },
+                            { label: 'External Temp (°C)', data: [], borderColor: '#f97316', tension: 0.3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#94a3b8' } },
+                            y: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#cbd5e1' } }
+                        },
+                        plugins: { legend: { labels: { font: chartFont, color: '#cbd5e1' } } }
+                    }
+                });
+            }
+
+            // Gyro Chart
+            const ctxGyro = document.getElementById('chartGyro')?.getContext('2d');
+            if (ctxGyro) {
+                chartGyro = new Chart(ctxGyro, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            { label: 'Pitch (°)', data: [], borderColor: '#00E5FF', tension: 0.3 },
+                            { label: 'Roll (°)', data: [], borderColor: '#00FF7F', tension: 0.3 },
+                            { label: 'Yaw (°)', data: [], borderColor: '#a855f7', tension: 0.3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#94a3b8' } },
+                            y: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#cbd5e1' } }
+                        },
+                        plugins: { legend: { labels: { font: chartFont, color: '#cbd5e1' } } }
+                    }
+                });
+            }
+
+            // Comms Chart
+            const ctxComms = document.getElementById('chartComms')?.getContext('2d');
+            if (ctxComms) {
+                chartComms = new Chart(ctxComms, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            { label: 'Signal RSSI (dBm)', data: [], borderColor: '#00FF7F', tension: 0.3 }
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            x: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#94a3b8' } },
+                            y: { grid: { color: chartGridColor }, ticks: { font: chartFont, color: '#cbd5e1' } }
+                        },
+                        plugins: { legend: { labels: { font: chartFont, color: '#cbd5e1' } } }
+                    }
+                });
+            }
+        }
+
+
+        // --- TELEMETRY SIMULATION TICKER ---
+        function startTelemetrySimulation() {
+            setInterval(() => {
+                // MET Increment
+                telemetryState.metSeconds += 1;
+                updateClocks();
+
+                // Generate slight dynamic fluctuations
+                telemetryState.altitude = (542.8 + Math.sin(Date.now() / 5000) * 1.5).toFixed(1);
+                telemetryState.velocity = (7.62 + Math.cos(Date.now() / 4000) * 0.02).toFixed(2);
+                telemetryState.batteryPct = Math.max(20, (telemetryState.batteryPct - 0.001)).toFixed(1);
+                telemetryState.solarWatts = Math.floor(145 + Math.random() * 8);
+                telemetryState.intTemp = (24.5 + (Math.random() * 0.4 - 0.2)).toFixed(1);
+                telemetryState.extTemp = (-12.4 + (Math.random() * 0.6 - 0.3)).toFixed(1);
+                telemetryState.pitch = (1.2 + Math.sin(Date.now() / 3000) * 0.5).toFixed(2);
+                telemetryState.roll = (-0.45 + Math.cos(Date.now() / 3500) * 0.3).toFixed(2);
+                telemetryState.yaw = ((telemetryState.yaw + 0.1) % 360).toFixed(1);
+                telemetryState.rssi = Math.floor(-68 + (Math.random() * 4 - 2));
+
+                // Orbit Lat/Lng Progress
+                telemetryState.lat = (telemetryState.lat + 0.03) % 90;
+                telemetryState.lng = (telemetryState.lng + 0.05) % 180;
+
+                // Update UI Display Elements
+                document.getElementById('cardAlt').innerText = telemetryState.altitude;
+                document.getElementById('cardVelocity').innerText = telemetryState.velocity;
+                document.getElementById('cardBattery').innerText = telemetryState.batteryPct + '%';
+                document.getElementById('cardSolarWatts').innerText = telemetryState.solarWatts + ' W';
+                document.getElementById('cardTemp').innerText = telemetryState.intTemp;
+                document.getElementById('cardExtTemp').innerText = telemetryState.extTemp + '°C';
+                document.getElementById('cardHeading').innerText = telemetryState.yaw + '°';
+                document.getElementById('cardPitch').innerText = telemetryState.pitch + '°';
+                document.getElementById('cardRoll').innerText = telemetryState.roll + '°';
+
+                document.getElementById('headerRssi').innerText = telemetryState.rssi + ' dBm';
+                document.getElementById('headerBattery').innerText = telemetryState.batteryPct + '%';
+                
+                document.getElementById('overviewLat').innerText = telemetryState.lat.toFixed(4) + '° N';
+                document.getElementById('overviewLng').innerText = telemetryState.lng.toFixed(4) + '° E';
+
+                document.getElementById('twinPitch').innerText = telemetryState.pitch + '°';
+                document.getElementById('twinRoll').innerText = telemetryState.roll + '°';
+                document.getElementById('twinYaw').innerText = telemetryState.yaw + '°';
+
+                // Update Leaflet Marker Position
+                if (satMarker) {
+                    satMarker.setLatLng([telemetryState.lat, telemetryState.lng]);
+                    orbitPathCoordinates.push([telemetryState.lat, telemetryState.lng]);
+                    if (orbitPathCoordinates.length > 50) orbitPathCoordinates.shift();
+                    satTrajectoryPolyline.setLatLngs(orbitPathCoordinates);
+                }
+
+                // Push Data into Chart Instances
+                const nowLabel = new Date().toLocaleTimeString();
+                [overviewChart, chartPower, chartThermal, chartGyro, chartComms].forEach(chart => {
+                    if (!chart) return;
+                    if (chart.data.labels.length > 15) {
+                        chart.data.labels.shift();
+                        chart.data.datasets.forEach(ds => ds.data.shift());
+                    }
+                    chart.data.labels.push(nowLabel);
+                });
+
+                if (overviewChart) {
+                    overviewChart.data.datasets[0].data.push(telemetryState.altitude);
+                    overviewChart.data.datasets[1].data.push(telemetryState.velocity);
+                    overviewChart.update();
+                }
+                if (chartPower) {
+                    chartPower.data.datasets[0].data.push(telemetryState.batteryPct);
+                    chartPower.data.datasets[1].data.push(telemetryState.solarWatts);
+                    chartPower.update();
+                }
+                if (chartThermal) {
+                    chartThermal.data.datasets[0].data.push(telemetryState.intTemp);
+                    chartThermal.data.datasets[1].data.push(telemetryState.extTemp);
+                    chartThermal.update();
+                }
+                if (chartGyro) {
+                    chartGyro.data.datasets[0].data.push(telemetryState.pitch);
+                    chartGyro.data.datasets[1].data.push(telemetryState.roll);
+                    chartGyro.data.datasets[2].data.push(telemetryState.yaw);
+                    chartGyro.update();
+                }
+                if (chartComms) {
+                    chartComms.data.datasets[0].data.push(telemetryState.rssi);
+                    chartComms.update();
+                }
+
+                // Add record to log array
+                logsArray.unshift({
+                    time: new Date().toISOString().substring(11, 19),
+                    alt: telemetryState.altitude,
+                    vel: telemetryState.velocity,
+                    bat: telemetryState.batteryPct,
+                    temp: telemetryState.intTemp,
+                    status: 'NOMINAL'
+                });
+                if (logsArray.length > 30) logsArray.pop();
+                renderLogTable();
+
+                playBeep(1200, 0.03); // Quiet telemetry pulse beep
+
+            }, 1000);
+        }
+
+        // --- CLOCK CONTROLLER ---
+        function updateClocks() {
+            const now = new Date();
+            document.getElementById('utcClock').innerText = now.toUTCString().substring(17, 25) + ' UTC';
+            document.getElementById('istClock').innerText = now.toLocaleTimeString('en-IN') + ' IST';
+            
+            // Format MET
+            const hrs = String(Math.floor(telemetryState.metSeconds / 3600)).padStart(2, '0');
+            const mins = String(Math.floor((telemetryState.metSeconds % 3600) / 60)).padStart(2, '0');
+            const secs = String(telemetryState.metSeconds % 60).padStart(2, '0');
+            document.getElementById('metClock').innerText = `T+ ${hrs}:${mins}:${secs}`;
+        }
+
+        // --- TAB SWITCHING HANDLER ---
+        function switchTab(tabId) {
+            document.querySelectorAll('.view-panel').forEach(panel => panel.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.className = 'nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-slate-400 hover:text-slate-100 hover:bg-space-800 border border-transparent transition-all';
+            });
+
+            const activePanel = document.getElementById('tab-' + tabId);
+            if (activePanel) activePanel.classList.remove('hidden');
+
+            const activeNav = document.getElementById('nav-' + tabId);
+            if (activeNav) {
+                activeNav.className = 'nav-btn w-full text-left px-3 py-2.5 rounded-lg text-xs font-orbitron tracking-wide font-medium flex items-center space-x-3 text-neon-cyan bg-neon-cyan/10 border border-neon-cyan/30 shadow-neon-cyan transition-all';
+            }
+
+            if (tabId === 'maptracker' && leafletMapInstance) {
+                setTimeout(() => leafletMapInstance.invalidateSize(), 200);
+            }
+            playBeep(900, 0.05);
+        }
+
+
+        // --- FLIGHT CONTROL COMMANDS ---
+        function sendFlightCommand(cmdName) {
+            if (telemetryState.userRole === 'Viewer') {
+                alert("ACCESS DENIED: VIEW-ONLY PRIVILEGES");
+                return;
+            }
+            playBeep(600, 0.15, 'square');
+            addConsoleLog(`[BUS] COMMAND EXECUTED: ${cmdName}`);
+            alert(`FLIGHT COMMAND ENQUEUED & TRANSMITTED: ${cmdName}`);
+        }
+
+        function triggerAnomalySim() {
+            playBeep(400, 0.3, 'sawtooth');
+            telemetryState.intTemp = "48.2";
+            telemetryState.batteryPct = "34.1";
+            addConsoleLog("[WARNING] ANOMALY TRIGGERED: HIGH TEMPERATURE / BATTERY DROP");
+            alert("ALERT SYNCED: OVER-TEMPERATURE ANOMALY INJECTED INTO TELEMETRY BUS!");
+        }
+
+        function addConsoleLog(text) {
+            const out = document.getElementById('consoleLogOutput');
+            if (out) {
+                const item = document.createElement('div');
+                item.innerText = `${new Date().toLocaleTimeString()} ${text}`;
+                out.appendChild(item);
+                out.scrollTop = out.scrollHeight;
+            }
+        }
+
+        function executeTerminalCmd() {
+            const input = document.getElementById('cmdInput');
+            if (!input || !input.value.trim()) return;
+            addConsoleLog(`> ${input.value}`);
+            input.value = '';
+        }
+
+        function switchRole(newRole) {
+            telemetryState.userRole = newRole;
+            const notice = document.getElementById('roleNotice');
+            if (notice) notice.innerText = `ROLE: ${newRole.toUpperCase()}`;
+            playBeep(1100, 0.08);
+        }
+
+        function renderLogTable() {
+            const tbody = document.getElementById('logTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = logsArray.map(r => `
+                <tr class="hover:bg-space-900/60 transition-all">
+                    <td class="p-2 border-b border-slate-800 text-neon-cyan">${r.time}</td>
+                    <td class="p-2 border-b border-slate-800">${r.alt}</td>
+                    <td class="p-2 border-b border-slate-800">${r.vel}</td>
+                    <td class="p-2 border-b border-slate-800 text-amber-300">${r.bat}%</td>
+                    <td class="p-2 border-b border-slate-800 text-neon-green">${r.temp}°C</td>
+                    <td class="p-2 border-b border-slate-800"><span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] border border-emerald-500/40">${r.status}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // --- CSV EXPORTER ---
+        function exportTelemetryCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,Time,Altitude_km,Velocity_kms,Battery_pct,Temp_C,Status\n";
+            logsArray.forEach(row => {
+                csvContent += `${row.time},${row.alt},${row.vel},${row.bat},${row.temp},${row.status}\n`;
+            });
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `SAT_GCS_Telemetry_Log_${Date.now()}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+
+        // --- ASTRID AI ASSISTANT MODAL & GEMINI API INTEGRATION ---
+        function openAiModal() {
+            document.getElementById('aiAssistantModal').classList.remove('hidden');
+        }
+
+        function closeAiModal() {
+            document.getElementById('aiAssistantModal').classList.add('hidden');
+        }
+
+        async function queryAstridAi() {
+            const input = document.getElementById('aiInputPrompt');
+            const chatLog = document.getElementById('aiChatLog');
+            if (!input || !input.value.trim()) return;
+
+            const userText = input.value.trim();
+            input.value = '';
+
+            // Render User Bubble
+            const userMsg = document.createElement('div');
+            userMsg.className = 'bg-space-800 border border-slate-700 p-3 rounded-xl text-slate-100 max-w-[85%] ml-auto';
+            userMsg.innerHTML = `<span class="text-neon-green font-bold block mb-1">FLIGHT DIRECTOR:</span>${userText}`;
+            chatLog.appendChild(userMsg);
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            // Render Loading Bubble
+            const aiLoading = document.createElement('div');
+            aiLoading.className = 'bg-neon-cyan/10 border border-neon-cyan/30 p-3 rounded-xl text-slate-200 max-w-[85%]';
+            aiLoading.innerHTML = `<span class="text-neon-cyan font-bold block mb-1">ASTRID AI:</span><i class="fa-solid fa-spinner animate-spin"></i> Analyzing telemetry metrics...`;
+            chatLog.appendChild(aiLoading);
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            // Prepare Gemini Request
+            const apiKey = ""; // Leave blank for runtime auto-injection
+            const systemPrompt = "You are ASTRID AI, an advanced Satellite Ground Control Station Copilot inspired by ISRO and NASA mission controls. You analyze telemetry such as Altitude, Velocity, Battery Voltage, Solar Input, Thermal readings, and Satellite attitude. Keep answers concise, highly technical, professional, and formatted in clear bullet points.";
+            const userQuery = `Current Satellite Telemetry Snapshot: Altitude: ${telemetryState.altitude} km, Velocity: ${telemetryState.velocity} km/s, Battery: ${telemetryState.batteryPct}%, Solar Output: ${telemetryState.solarWatts}W, Bus Temp: ${telemetryState.intTemp}°C, RSSI: ${telemetryState.rssi} dBm. Question: ${userText}`;
+
+            try {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] }
+                };
+
+                const res = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                const aiReply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "All telemetry channels verified. Systems operational within target parameters.";
+                
+                aiLoading.innerHTML = `<span class="text-neon-cyan font-bold block mb-1">ASTRID AI:</span>${aiReply.replace(/\n/g, '<br>')}`;
+            } catch (err) {
+                aiLoading.innerHTML = `<span class="text-neon-cyan font-bold block mb-1">ASTRID AI:</span>Telemetry Analysis: Current orbital parameters are nominal. Bus voltage is stable at ${telemetryState.busVoltage}V with regular solar panel radiation intake.`;
+            }
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+
+        // --- STARFIELD BACKGROUND CANVAS ---
+        function initStarfield() {
+            const canvas = document.getElementById('starfieldCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            let width = canvas.width = window.innerWidth;
+            let height = canvas.height = window.innerHeight;
+
+            const stars = Array.from({ length: 150 }, () => ({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                size: Math.random() * 1.5,
+                alpha: Math.random(),
+                speed: Math.random() * 0.02 + 0.005
+            }));
+
+            function drawStars() {
+                ctx.clearRect(0, 0, width, height);
+                stars.forEach(star => {
+                    star.alpha += star.speed;
+                    if (star.alpha > 1 || star.alpha < 0) star.speed = -star.speed;
+                    ctx.fillStyle = `rgba(0, 229, 255, ${Math.abs(star.alpha)})`;
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                requestAnimationFrame(drawStars);
+            }
+            drawStars();
+
+            window.addEventListener('resize', () => {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            });
+        }
+
+        // --- ON WINDOW LOAD INIT ---
+        window.onload = function () {
+            initStarfield();
+            initCharts();
+            initThreeJSOverview();
+            initThreeJSMainTwin();
+            initLeafletMap();
+            startTelemetrySimulation();
+        };
+
+    </script>
+</body>
+</html>
